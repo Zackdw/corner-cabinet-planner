@@ -32,11 +32,15 @@ geometry and measurement tests.
   changing overall height; the computed top opening supports scrubbing too.
 - Structural height includes the top, bottom, and dividing panels. The top
   opening fills the remaining height. Move it down to give it a fixed height.
-- Split the top opening, remove/reorder sections, or try three layout presets.
+- Split the top opening, remove/reorder sections, or try four layout presets. **Reach** (the default) puts double doors below and above an open cubby whose floor is at 53", sized for a 5'10" primary user; it starts with 3 shelves below and 2 above.
   Presets replace storage arrangements but preserve room/material settings.
 - Reorder by dragging a section in the list or dragging an opening onto another
   in the front drawing or **Drag layout** editor under **The layout**. Opening heights
   travel with their sections, including the formerly auto-fill top opening.
+- Open cubbies can have an **LED light strip groove** (5/8" W x 5/16" D, routed into the underside of the panel above, 1" behind its front edge). It shows in 3D, the front drawing, the top plan, the proposal, and the JSON export.
+- **Toe kick, top trim, and hinge blocks** live under **The space** and sit inside the overall height. The defaults are a 4" high x 3" deep toe kick (lets you stand about 3" closer, adding about 3" of reach), a 3" trim board on top,. Hinge blocks (3" angled, for frameless fronts) default to 0 because the face frame carries the hinges. Hinge counts follow door height (2 up to 40", 3 up to 60"), and middle hinges move clear of shelves. Designs saved before these settings existed load unchanged.
+- **Inset face frame** (default 1 1/2", "fine furniture"): hardwood stiles and rails as thick as the doors, with the doors flush inside. Rails sit flush with each panel top, so there is no lip on the cubby floor and the rail above the cubby hides the LED strip. The carcass stops behind the frame; the opening is 19 15/16" wide. Set it to 0 for a frameless front.
+- **One-piece header** (on by default with a face frame and top trim): the top trim and the frame's top rail become one full-width board from the ceiling down to the top of the upper doors (4 1/2" by default). The stiles stop under it. It is fitted and scribed to the ceiling after the cabinet stands, so tip-up clearance is unchanged. Turn it off under **The space** for a separate trim board and top rail.
 - Drag green divider bars to resize adjacent openings live in **1-inch steps**.
   Resizing transfers height between neighbors without changing the total height.
   Minimum usable openings account for shelves, drawer stock, and gaps. Focus a

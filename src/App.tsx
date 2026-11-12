@@ -4,15 +4,16 @@ import { FrontDrawing, TopDrawing } from './Drawings';
 import { Scene } from './Scene';
 import { AnimatedContent } from './AnimatedContent';
 import { NumberField } from './NumberField';
-import type { Config, Design, Section, StorageKind } from './model';
-import { finishes, fitWarnings, fmt, geometry, hasShelves, initialDesign, inspectorLimits, isDesign, kinds, layout, preset, reorderSections, resizeBoundary, shelfClearHeight, traySweep, triangularDrawer, validation, WALL_CLEARANCE_WARNING } from './model';
+import type { Config, Design, PresetStyle, Section, StorageKind } from './model';
+import { BLUM_HINGE, carcass, finishes, fitWarnings, fmt, frameHeader, frameParts, geometry, hingeBlocks, hingeHeights, hasLight, upgradeDesign, hasShelves, initialDesign, inspectorLimits, isDesign, kinds, layout, LIGHT_SPEC, lightGroove, preset, reorderSections, resizeBoundary, shelfClearHeight, traySweep, triangularDrawer, validation, WALL_CLEARANCE_WARNING } from './model';
 
 const STORAGE_KEY = 'corner-workshop-designs-v1';
 function readSaved(): { designs: Design[]; error: string } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { designs: [], error: '' };
-    const parsed: unknown = JSON.parse(raw);
+    const stored: unknown = JSON.parse(raw);
+    const parsed = Array.isArray(stored) ? stored.map(upgradeDesign) : stored;
     if (!Array.isArray(parsed) || !parsed.every(isDesign))
       throw new Error('Saved designs have an unsupported format.');
     return { designs: parsed, error: '' };
@@ -62,7 +63,7 @@ export default function App() {
     setDesign(previous => ({ ...previous, sections: previous.sections.map(item => item.id === s.id ? { ...item, ...patch } : item) }));
   }
   function select(id: string) { setSelected(id); }
-  function choosePreset(style: 'balanced' | 'library' | 'drawers') {
+  function choosePreset(style: PresetStyle) {
     const sections = preset(c, style);
     setDesign({ ...design, sections });
     select(sections[0].id);
@@ -72,7 +73,7 @@ export default function App() {
     if (last.height < 6 + c.thickness) { setMessage('Make the top section taller before splitting it; both new openings need at least 3 inches.'); return; }
     const newHeight = (last.height - c.thickness) / 2;
     const sections = design.sections.map(item => item.id === last.id ? { ...item, height: newHeight } : item);
-    const added: Section = { ...last, id: crypto.randomUUID(), name: `Section ${sections.length + 1}`, kind: 'cubby', height: newHeight, shelves: 0 };
+    const added: Section = { ...last, id: crypto.randomUUID(), name: `Section ${sections.length + 1}`, kind: 'cubby', height: newHeight, shelves: 0, light: undefined };
     sections.push(added);
     setDesign({ ...design, sections });
     select(added.id);
@@ -155,8 +156,10 @@ export default function App() {
   }
   function exportDesign() {
     const data = { schemaVersion: 2, units: 'inches', ...design, sections: placed.map(item => item.kind === 'drawers'
-      ? { ...item, drawerShape: 'triangular', boxWidth: drawer.width, boxDepth: drawer.depth } : item),
-      derived: { frontEnvelopeWidth: g.width, centerDepth: g.depth, shelfFrontWidth: g.shelfWidth,
+      ? { ...item, drawerShape: 'triangular', boxWidth: drawer.width, boxDepth: drawer.depth }
+      : hasLight(item) ? { ...item, lightGroove: { ...lightGroove(c), spec: LIGHT_SPEC } }
+        : item.kind === 'door' || item.kind === 'single-door' ? { ...item, hingeHeights: hingeHeights(c, item), hingeBlocks: hingeBlocks(c, item), ...(c.faceFrame > 0 ? { hinge: BLUM_HINGE.name } : {}) } : item),
+      derived: { frontEnvelopeWidth: g.width, centerDepth: g.depth, shelfFrontWidth: g.shelfWidth, faceFrame: frameParts(c, design.sections),
         triangularDrawer: { outsideWidth: drawer.width, outsideDepth: drawer.depth, insideWidth: drawer.insideWidth, insideDepth: drawer.insideDepth } },
       warnings, status: 'Concept proposal; not a shop drawing or approved cut list' };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -190,7 +193,15 @@ export default function App() {
             <NumberField label="Inside angle" value={c.angle} change={v => config('angle', v)} unit="deg" />
             <NumberField label="Overall height" value={c.height} change={v => config('height', v)} />
             <NumberField label="Wall clearance" value={c.wallGap} change={v => config('wallGap', v)} />
+            <NumberField label="Toe kick height" value={c.toeKickHeight} change={v => config('toeKickHeight', v)} />
+            <NumberField label="Toe kick depth" value={c.toeKickDepth} change={v => config('toeKickDepth', v)} />
+            <NumberField label="Top trim height" value={c.topTrim} change={v => config('topTrim', v)} />
+            <NumberField label="Face frame width" value={c.faceFrame} change={v => config('faceFrame', v)} />
+            <NumberField label="Hinge block length" value={c.hingeBlockLength} change={v => config('hingeBlockLength', v)} />
           </div>
+          <label className="light-toggle"><input type="checkbox" checked={c.trimHeader === 1} disabled={c.faceFrame <= 0 || c.topTrim <= 0}
+            onChange={e => config('trimHeader', e.target.checked ? 1 : 0)} /> One-piece header from the ceiling to the upper doors</label>
+          <p className="small-note">The toe kick and top trim sit inside the overall height. A 4" x 3" toe kick lets you stand about 3" closer, so you can reach about 3" farther into the cubby. The face frame is an inset, fine-furniture frame: 1 1/2" hardwood stiles and rails with the doors flush inside it, and its hinges mount to the stiles. Set it to 0 for a frameless front, which then needs hinge blocks to mount hinges square on the angled sides.</p>
           <p className="small-note">Wall runs start at the corner and end at the front. All panels and closed fronts stay inside that triangle. Flush fronts; no projecting handles.</p>
           <details className="materials" open>
             <summary>Materials & allowances</summary>
@@ -206,7 +217,7 @@ export default function App() {
           </details>
           <div className="panel-heading section-heading"><span className="step">02</span><h2>The layout</h2></div>
           <div className="preset-buttons" aria-label="Layout presets">
-            <button onClick={() => choosePreset('balanced')}>Mixed</button><button onClick={() => choosePreset('library')}>Shelving</button><button onClick={() => choosePreset('drawers')}>Drawers</button>
+            <button onClick={() => choosePreset('reach')}>Reach</button><button onClick={() => choosePreset('balanced')}>Mixed</button><button onClick={() => choosePreset('library')}>Shelving</button><button onClick={() => choosePreset('drawers')}>Drawers</button>
           </div>
           <p className="small-note">Drag sections to reorder, or use the editor below. Presets replace the layout; save an idea before switching.</p>
           <div className="section-list">
@@ -277,6 +288,15 @@ export default function App() {
             <NumberField key={`${s.id}-shelves`} label="Adjustable shelves" value={s.shelves} change={v => updateSection({ shelves: v })} unit="qty" step={1} scrub={limits.shelves} />
             <div className="readout"><span>Clear height per shelf space</span><strong>{fmt(shelfClearHeight(c, s))}"</strong><small>Even spacing. For uneven heights, use separate cubby sections.</small></div>
           </>}
+          {(s.kind === 'door' || s.kind === 'single-door') && <div className="readout"><span>Hinges per door leaf</span>
+            <strong>{hingeHeights(c, s).length} at {hingeHeights(c, s).map(h => fmt(h) + '"').join(', ')}</strong>
+            <small>{hingeBlocks(c, s).length ? `Each hinge mounts on a ${fmt(c.hingeBlockLength)}" angled block, ${fmt(hingeBlocks(c, s)[0].thickness)}" thick at the front.` : c.faceFrame > 0 ? `${BLUM_HINGE.name}, mounted to the ${fmt(c.faceFrame)}" face frame stiles.` : 'No hinge blocks. The hinges need another way to mount square to the door on the angled sides.'} Heights from the floor; counts follow typical door-height guidance.</small></div>}
+          {s.kind === 'cubby' && <>
+            <label className="light-toggle"><input type="checkbox" checked={s.light === true}
+              onChange={e => updateSection({ light: e.target.checked })} /> LED light strip groove</label>
+            {hasLight(s) && <div className="readout"><span>Light strip groove length</span><strong>{fmt(lightGroove(c).length)}"</strong>
+              <small>{LIGHT_SPEC}.</small></div>}
+          </>}
           {s.kind === 'drawers' && <>
             <NumberField key={`${s.id}-drawers`} label="Number of drawers" value={s.drawers} change={v => updateSection({ drawers: v })} unit="qty" step={1} scrub={limits.drawers} />
             <div className="readout"><span>Triangular box outside (front W x center D)</span><strong>{fmt(drawer.width)} x {fmt(drawer.depth)}"</strong>
@@ -323,7 +343,11 @@ export default function App() {
     <section className="print-only proposal">
       <p className="eyebrow">CUSTOM CABINET / REQUEST FOR DESIGN & QUOTATION</p><h1>{design.name}</h1>
       <p>Concept proposal. Dimensions in inches. Verify site measurements and construction details before fabrication.</p>
-      <div className="print-specs"><strong>{fmt(c.angle)} deg interior corner</strong><strong>{fmt(c.wallRun)}" along each wall</strong><strong>{fmt(c.height)}" total height</strong><strong>{fmt(g.width)}" front envelope</strong></div>
+      <div className="print-specs"><strong>{fmt(c.angle)} deg interior corner</strong><strong>{fmt(c.wallRun)}" along each wall</strong><strong>{fmt(c.height)}" total height</strong><strong>{fmt(g.width)}" front envelope</strong>
+        {c.toeKickHeight > 0 && <strong>{fmt(c.toeKickHeight)}" x {fmt(c.toeKickDepth)}" toe kick</strong>}
+        {c.topTrim > 0 && <strong>{frameHeader(c) ? `${fmt(frameHeader(c)!.height)}" one-piece header` : `${fmt(c.topTrim)}" top trim`} (carcass {fmt(carcass(c).top - carcass(c).base)}" tall)</strong>}
+        {c.faceFrame > 0 && <strong>{fmt(c.faceFrame)}" inset face frame</strong>}</div>
+      {(() => { const frame = frameParts(c, design.sections); return frame && <p>Inset face frame, {fmt(frame.thickness)}" hardwood, doors flush inside it: 2 stiles {fmt(frame.width)}" x {fmt(frame.stileLength)}" (outer edges beveled and scribed to the walls); {frame.rails.length} rails {fmt(frame.width)}" x {fmt(frame.railLength)}" with top edges flush with the panel surfaces at {frame.rails.map(([, top]) => fmt(top) + '"').join(', ')}. Opening width {fmt(frame.opening)}". The rail above the cubby hides the LED strip. Hinges mount to the stiles.{frame.header && <> One-piece header: {fmt(frame.header.length)}" x {fmt(frame.header.height)}", from the ceiling down to the top of the upper doors at {fmt(frame.header.bottom)}", ends beveled to the walls. It replaces the top trim and top rail, the stiles stop under it, and it is fitted and scribed to the ceiling after the cabinet is stood up.</>}</p>; })()}
       {errors.length ? <div><h2>INVALID DIMENSIONS - NOT FOR FABRICATION</h2><ul>{errors.map(e => <li key={e}>{e}</li>)}</ul></div>
         : <div className="print-drawings"><FrontDrawing design={design} /><TopDrawing design={design} /></div>}
       <h2>Requested layout (bottom to top)</h2>
@@ -331,10 +355,10 @@ export default function App() {
         <tbody>{placed.map(item => <tr key={item.id}><td>{item.name}</td><td>{kinds[item.kind]}</td><td>{fmt(item.height)}"</td><td>
           {item.kind === 'drawers' ? `${item.drawers} triangular boxes, ${fmt(drawer.width)}" front W x ${fmt(drawer.depth)}" center D outside`
             : item.kind === 'swing' ? `${fmt(item.boxWidth)}" W x ${fmt(item.boxDepth)}" D tray, conceptual pivot`
-              : `${item.kind === 'single-door' ? `${item.hinge ?? 'left'} hinge; ` : ''}${item.shelves} shelves; ${fmt(shelfClearHeight(c, item))}" clear per space`}
+              : `${item.kind === 'single-door' ? `${item.hinge ?? 'left'} hinge; ` : ''}${item.kind === 'door' || item.kind === 'single-door' ? `${hingeHeights(c, item).length} hinges per leaf${hingeBlocks(c, item).length ? ` on ${fmt(c.hingeBlockLength)}" angled blocks` : ''}${c.faceFrame > 0 ? ` (Blum ${BLUM_HINGE.hinge} + plate ${BLUM_HINGE.plate})` : ''}; ` : ''}${item.shelves} shelves; ${fmt(shelfClearHeight(c, item))}" clear per space${hasLight(item) ? `; ${LIGHT_SPEC}, ${fmt(lightGroove(c).length)}" long` : ''}`}
         </td></tr>)}</tbody></table>
       <h2>Envelope and material assumptions</h2>
-      <p>Symmetric triangular footprint. Wall-run limit includes all modeled material. Straight center depth: {fmt(g.depth)}". Panels: {fmt(c.thickness)}"; inset fronts: {fmt(c.frontThickness)}"; box stock: {fmt(c.boxThickness)}"; front gap: {fmt(c.reveal)}"; wall clearance perpendicular to each wall: {fmt(c.wallGap)}". Triangular drawer side allowance: {fmt(c.slideClearance)}" perpendicular to each side. Runner/support hardware is not modeled; no parallel side rails are assumed. Finish reference: {finishes[design.finish].name}.</p>
+      <p>Symmetric triangular footprint. Wall-run limit includes all modeled material. Straight center depth: {fmt(g.depth)}". Panels: {fmt(c.thickness)}"; inset fronts: {fmt(c.frontThickness)}"; box stock: {fmt(c.boxThickness)}"; front gap: {fmt(c.reveal)}"; wall clearance perpendicular to each wall: {fmt(c.wallGap)}". Triangular drawer side allowance: {fmt(c.slideClearance)}" perpendicular to each side. Runner/support hardware is not modeled; no parallel side rails are assumed. Finish reference: {finishes[design.finish].name}.{finishes[design.finish].note && <> {finishes[design.finish].note}</>}</p>
       <p>Angled side panels enclose the back; no separate back. Top and bottom included in height. No projecting handles, crown, feet, plinth, or countertop. Wall scribing, joinery, actual stock thickness, hardware, service access, load ratings, and tolerances require the maker's design. Shelf dimensions are triangular extents, not rectangular cut sizes.</p>
       <h2>Review with the woodworker</h2>
       <ul>{warnings.map(w => <li key={w}>{w}</li>)}<li>Confirm all room measurements, obstacles, outlet access, floor level, anchoring and tip-over prevention.</li><li>Confirm installation at {fmt(c.height)}" height: ceiling clearance, delivery route, and sectional assembly.</li><li>Specify actual hinges/slides and check full swept hardware envelopes before approving doors, drawers, or trays.</li><li>Please quote materials, finish, hardware, installation, timeline, and any recommended layout revisions.</li></ul>

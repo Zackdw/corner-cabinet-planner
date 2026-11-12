@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type { Design, Point, Section } from './model';
-import { doorLeaves, finishes, fmt, geometry, hasShelves, kinds, layout, minimumSectionHeight, shelfClearHeight, trayPoints, triangularDrawer } from './model';
+import { carcass, doorLeaves, finishes, fmt, frameHeader, frameOpening, geometry, hingeBlocks, hingeHeights, hasLight, hasShelves, kinds, layout, lightGroove, minimumSectionHeight, shelfClearHeight, trayPoints, triangularDrawer } from './model';
 
 export function FrontDrawing({ design, selected = '', select = () => {}, resize, reorder, reportError, compact = false }: {
   design: Design; selected?: string; select?: (id: string) => void;
@@ -13,7 +13,7 @@ export function FrontDrawing({ design, selected = '', select = () => {}, resize,
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ kind: 'resize' | 'reorder'; id: string; start: number; pixelsPerInch: number; baseline: Section[]; target?: string } | null>(null);
   const [dropTarget, setDropTarget] = useState('');
-  const c = design.config, g = geometry(c), sections = layout(c, design.sections);
+  const c = design.config, g = geometry(c), sections = layout(c, design.sections), box = carcass(c);
   const scale = Math.min(4.3, 405 / c.height, 190 / (g.outerHalf * 2));
   const x = 195 - g.outerHalf * scale, w = g.outerHalf * 2 * scale;
   const y = (inches: number) => 465 - inches * scale;
@@ -60,9 +60,25 @@ export function FrontDrawing({ design, selected = '', select = () => {}, resize,
     onPointerMove={move} onPointerUp={event => end(event)} onPointerCancel={event => end(event, true)}>
     <text x="24" y="28" className="drawing-title">FRONT ELEVATION</text>
     <text x="24" y="46" className="drawing-note">{resize ? 'Drag green bars: 1-inch resize / drag openings: reorder' : 'Closed position / clear opening heights'}</text>
-    <rect x={x} y={y(c.height)} width={w} height={c.height * scale} fill={finishes[design.finish].color} stroke="#655846" />
+    <rect x={x} y={y(box.top)} width={w} height={(box.top - box.base) * scale} fill={finishes[design.finish].color} stroke="#655846" />
+    {c.topTrim > 0 && (() => {
+      const header = frameHeader(c), bottom = header?.bottom ?? box.top;
+      return <g aria-label={header ? 'One-piece header' : 'Top trim'}>
+        <rect x={x} y={y(c.height)} width={w} height={(c.height - bottom) * scale} fill={finishes[design.finish].color} stroke="#655846" />
+        <text x="195" y={y((c.height + bottom) / 2) + 3} textAnchor="middle" className="drawing-note">
+          {header ? `HEADER ${fmt(header.height)}"` : `TRIM ${fmt(c.topTrim)}"`}</text>
+      </g>;
+    })()}
+    {box.base > 0 && (() => {
+      const zk = g.depth - c.toeKickDepth, xk = g.outerHalf * (zk - g.outerTip) / (g.depth - g.outerTip);
+      return <g aria-label="Toe kick">
+        <rect x={195 - xk * scale} y={y(box.base)} width={2 * xk * scale} height={box.base * scale} fill="#5f5446" />
+        <text x={x + w + 8} y={y(box.base / 2) + 3} className="drawing-note">{fmt(box.base)}" x {fmt(c.toeKickDepth)}" toe kick</text>
+      </g>;
+    })()}
     {sections.map(s => {
-      const sy = y(s.top), sh = s.height * scale;
+      // sy/sh: the visible opening (inside the face frame rails); dy/dh: the carcass clear opening.
+      const [ob, ot] = frameOpening(c, s), sy = y(ot), sh = (ot - ob) * scale, dy = y(s.top), dh = s.height * scale;
       const fx = 195 - g.frontWidth * scale / 2, fw = g.frontWidth * scale;
       return <g key={s.id} className="selectable" role="button" tabIndex={0} aria-label={`Select ${s.name}`}
         onPointerDown={reorder ? event => begin(event, 'reorder', s.id) : undefined}
@@ -80,13 +96,21 @@ export function FrontDrawing({ design, selected = '', select = () => {}, resize,
         {hasShelves(s.kind) && Array.from({ length: s.shelves }, (_, i) =>
           <rect key={i} x={fx} y={y(s.bottom + (i + 1) * (shelfClearHeight(c, s) + c.thickness))}
             width={fw} height={c.thickness * scale} fill="#91754f" opacity={s.kind === 'door' ? 0.35 : 1} />)}
+        {(s.kind === 'door' || s.kind === 'single-door') && doorLeaves(c, s).flatMap(({ side }) => hingeHeights(c, s).map(hy =>
+          <rect key={`${side}-${hy}`} x={side < 0 ? fx + 1 : fx + fw - 4} y={y(hy) - 4} width="3" height="8" fill="#6e5940" />))}
+        {hasLight(s) && <g aria-label="LED light groove under the panel above">
+          <line x1={195 - lightGroove(c).length * scale / 2} x2={195 + lightGroove(c).length * scale / 2}
+            y1={dy + 1.5} y2={dy + 1.5} stroke="#d99a1e" strokeWidth="2.5" strokeLinecap="round"
+            strokeDasharray={c.faceFrame > 0 ? '4 3' : undefined} />
+          <text x={fx + 4} y={sy + 12} className="drawing-note">{c.faceFrame > 0 ? 'LED (behind rail)' : 'LED'}</text>
+        </g>}
         {s.kind === 'swing' && <rect x={195 - s.boxWidth * scale / 2} y={y(s.bottom + 3)}
           width={s.boxWidth * scale} height={3 * scale} fill="#af8c5c" stroke="#776044" />}
-        <line x1={x + w + 8} x2={x + w + 17} y1={sy} y2={sy} className="dim-line" />
-        <line x1={x + w + 8} x2={x + w + 17} y1={sy + sh} y2={sy + sh} className="dim-line" />
-        <line x1={x + w + 13} x2={x + w + 13} y1={sy} y2={sy + sh} className="dim-line" />
-        <text x={x + w + 23} y={sy + sh / 2 - 3} className="dim-text">{fmt(s.height)}"</text>
-        <text x={x + w + 23} y={sy + sh / 2 + 13} className="drawing-note">{kinds[s.kind]}</text>
+        <line x1={x + w + 8} x2={x + w + 17} y1={dy} y2={dy} className="dim-line" />
+        <line x1={x + w + 8} x2={x + w + 17} y1={dy + dh} y2={dy + dh} className="dim-line" />
+        <line x1={x + w + 13} x2={x + w + 13} y1={dy} y2={dy + dh} className="dim-line" />
+        <text x={x + w + 23} y={dy + dh / 2 - 3} className="dim-text">{fmt(s.height)}"</text>
+        <text x={x + w + 23} y={dy + dh / 2 + 13} className="drawing-note">{kinds[s.kind]}</text>
       </g>;
     })}
     {resize && sections.slice(0, -1).map((s, i) => <g key={`resize-${s.id}`} className="shelf-resize"
@@ -153,6 +177,29 @@ export function TopDrawing({ design, selected = '', opening = 0 }: { design: Des
           g.depth - x * Math.sin(angle) + z * Math.cos(angle),
         ]))} fill="#55796a" stroke="#35594b" />;
     })}
+    {g.stiles.map((points, i) => <polygon key={`stile-${i}`} aria-label="Face frame stile" points={polygon(points)} fill="#a8814f" stroke="#6e5940" />)}
+    {g.stiles.length > 0 && <text x="220" y={pz(g.depth) - 6} textAnchor="middle" className="drawing-note">{fmt(c.faceFrame)}" face frame, {fmt(g.frameOpening)}" opening</text>}
+    {c.toeKickHeight > 0 && c.toeKickDepth > 0 && <g aria-label="Toe kick line">
+      <line x1={px(-g.outerHalf * (g.depth - c.toeKickDepth - g.outerTip) / (g.depth - g.outerTip))} y1={pz(g.depth - c.toeKickDepth)}
+        x2={px(g.outerHalf * (g.depth - c.toeKickDepth - g.outerTip) / (g.depth - g.outerTip))} y2={pz(g.depth - c.toeKickDepth)}
+        stroke="#5f5446" strokeDasharray="6 3" />
+      <text x={rightX + 6} y={pz(g.depth - c.toeKickDepth) + 4} className="drawing-note">toe kick</text>
+    </g>}
+    {section && (() => {
+      const placedSection = layout(c, design.sections).find(item => item.id === section.id);
+      const blocks = placedSection ? hingeBlocks(c, placedSection) : [];
+      const seen = new Set<number>();
+      return blocks.filter(b => !seen.has(b.side) && seen.add(b.side)).map(b =>
+        <polygon key={b.side} aria-label="Hinge mounting block" points={polygon(b.points)} fill="#b98d58" stroke="#7a5a2f" />);
+    })()}
+    {section && hasLight(section) && (() => {
+      const lg = lightGroove(c), h = lg.length / 2;
+      return <g aria-label="LED light groove">
+        <polygon points={polygon([[-h, lg.zBack], [h, lg.zBack], [h, lg.zFront], [-h, lg.zFront]])}
+          fill="#f2c25c" stroke="#b07a12" strokeDasharray="3 2" />
+        <text x="220" y={pz(lg.zBack) - 8} textAnchor="middle" className="drawing-note">LED groove under panel above, {fmt(lg.length)}" long</text>
+      </g>;
+    })()}
     {section?.kind === 'swing' && <>
       <polygon points={polygon([
         [-section.boxWidth / 2, g.frontInside], [section.boxWidth / 2, g.frontInside],

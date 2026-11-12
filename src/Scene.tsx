@@ -3,7 +3,7 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { Edges, OrbitControls } from '@react-three/drei';
 import { Shape } from 'three';
 import type { Design, PlacedSection, Point } from './model';
-import { doorLeaves, finishes, geometry, hasShelves, layout, shelfClearHeight, triangularDrawer } from './model';
+import { BLUM_HINGE, carcass, doorLeaves, finishes, frameHeader, frameOpening, frameParts, geometry, HINGE_BLOCK_HEIGHT, hingeBlocks, hingeHeights, hingePlate, hasLight, hasShelves, layout, lightGroove, shelfClearHeight, triangularDrawer } from './model';
 
 function Slab({ points, bottom, height, color, ghost = false }: {
   points: Point[]; bottom: number; height: number; color: string; ghost?: boolean;
@@ -27,6 +27,35 @@ function Board({ size, at, color }: { size: [number, number, number]; at: [numbe
     <Edges color="#614c37" transparent opacity={0.35} />
   </mesh>;
 }
+const NICKEL = { color: '#b9bec4', metalness: 0.75, roughness: 0.32 };
+/** A metal bar between two plan points (x, z) at height y. */
+function Bar({ from: [xa, za], to: [xb, zb], y, height, thickness }: {
+  from: Point; to: Point; y: number; height: number; thickness: number;
+}) {
+  const dx = xb - xa, dz = zb - za, length = Math.hypot(dx, dz);
+  return <mesh position={[(xa + xb) / 2, y, (za + zb) / 2]} rotation={[0, Math.atan2(-dz, dx), 0]} castShadow>
+    <boxGeometry args={[length, height, thickness]} />
+    <meshStandardMaterial {...NICKEL} />
+  </mesh>;
+}
+/**
+ * Blum concealed hinge on one door leaf, in the door's own coordinates (origin at the
+ * pivot edge, front face at z = 0), so the cup and arm swing with the door.
+ */
+function HingeOnDoor({ side, y, plate, pivotX, depth, frontThickness }: {
+  side: number; y: number; plate: { x0: number; x1: number; z0: number; z1: number };
+  pivotX: number; depth: number; frontThickness: number;
+}) {
+  const cupX = -side * BLUM_HINGE.cupCenterFromEdge, back = -frontThickness;
+  const plateLocal: Point = [side * (plate.x0 + plate.x1) / 2 - pivotX, (plate.z0 + plate.z1) / 2 - depth];
+  return <group>
+    <mesh position={[cupX, y, back - 0.02]} rotation={[Math.PI / 2, 0, 0]}>
+      <cylinderGeometry args={[BLUM_HINGE.cupDiameter / 2 + 0.08, BLUM_HINGE.cupDiameter / 2 + 0.08, 0.06, 24]} />
+      <meshStandardMaterial {...NICKEL} />
+    </mesh>
+    <Bar from={[cupX, back - 0.2]} to={plateLocal} y={y} height={0.55} thickness={0.32} />
+  </group>;
+}
 function TrayBox({ width, depth, height, thickness, color }: {
   width: number; depth: number; height: number; thickness: number; color: string;
 }) {
@@ -45,7 +74,25 @@ function Storage({ design, section: s, opening, selected, select }: {
   const frontColor = selected ? '#d5af6f' : color;
   const gap = c.reveal;
   const drawer = triangularDrawer(c);
+  const groove = hasLight(s) ? lightGroove(c) : null;
+  const [ob, ot] = frameOpening(c, s), oh = ot - ob;
+  const plate = hingePlate(c);
   return <group onClick={event => { event.stopPropagation(); select(); }}>
+    {(s.kind === 'door' || s.kind === 'single-door') && doorLeaves(c, s).flatMap(({ side }) => hingeHeights(c, s).map(hy =>
+      <mesh key={`plate-${side}-${hy}`} position={[side * (plate.x0 + plate.x1) / 2, hy, (plate.z0 + plate.z1) / 2]}>
+        <boxGeometry args={[plate.x1 - plate.x0, BLUM_HINGE.plateHeight, plate.z1 - plate.z0]} />
+        <meshStandardMaterial {...NICKEL} />
+      </mesh>))}
+    {hingeBlocks(c, s).map((b, i) => <Slab key={`block-${i}`} points={b.points}
+      bottom={b.y - HINGE_BLOCK_HEIGHT / 2} height={HINGE_BLOCK_HEIGHT} color="#b98d58" />)}
+    {groove && <group>
+      <mesh position={[0, s.top - 0.03, groove.zCenter]}>
+        <boxGeometry args={[groove.length, 0.06, groove.width]} />
+        <meshStandardMaterial color="#fff4d6" emissive="#ffd27a" emissiveIntensity={1.6} />
+      </mesh>
+      <pointLight position={[0, s.top - 1, groove.zCenter - 4]} color="#ffd9a0" intensity={140}
+        distance={Math.max(20, s.height * 2)} decay={2} />
+    </group>}
     {hasShelves(s.kind) && Array.from({ length: s.shelves }, (_, i) => (
       <Slab key={i} points={g.shelf} bottom={s.bottom + (i + 1) * shelfClearHeight(c, s) + i * c.thickness}
         height={c.thickness} color={frontColor} />
@@ -55,16 +102,18 @@ function Storage({ design, section: s, opening, selected, select }: {
       <meshBasicMaterial transparent opacity={0} depthWrite={false} />
     </mesh>}
     {(s.kind === 'door' || s.kind === 'single-door') && doorLeaves(c, s).map(({ side, width: leafWidth }) => {
-      return <group key={side} position={[side * g.frontWidth / 2, s.bottom + s.height / 2, g.depth]}
+      return <group key={side} position={[side * g.frontWidth / 2, ob + oh / 2, g.depth]}
         rotation={[0, side * opening * Math.PI / 2, 0]}>
-        <Board size={[leafWidth, s.height - 2 * gap, c.frontThickness]}
+        <Board size={[leafWidth, oh - 2 * gap, c.frontThickness]}
           at={[-side * leafWidth / 2, 0, -c.frontThickness / 2]} color={frontColor} />
+        {hingeHeights(c, s).map(hy => <HingeOnDoor key={hy} side={side} y={hy - (ob + oh / 2)} plate={plate}
+          pivotX={side * g.frontWidth / 2} depth={g.depth} frontThickness={c.frontThickness} />)}
       </group>;
     })}
     {s.kind === 'drawers' && <>
       {Array.from({ length: s.drawers }, (_, i) => {
-        const h = (s.height - (s.drawers + 1) * gap) / s.drawers;
-        const y = s.bottom + gap + i * (h + gap);
+        const h = (oh - (s.drawers + 1) * gap) / s.drawers;
+        const y = ob + gap + i * (h + gap);
         return <group key={i} position={[0, 0, opening * drawer.depth * 0.9]}>
           <Board size={[g.frontWidth, h, c.frontThickness]} at={[0, y + h / 2, g.depth - c.frontThickness / 2]} color={frontColor} />
           <group position={[0, y + 0.5, 0]}>
@@ -96,7 +145,9 @@ function CameraPosition({ height, depth, reset }: { height: number; depth: numbe
 export function Scene({ design, selected, onSelect, openings, ghost, reset }: {
   design: Design; selected: string; onSelect: (id: string) => void; openings: Record<string, number>; ghost: boolean; reset: number;
 }) {
-  const c = design.config, g = geometry(c), sections = layout(c, design.sections);
+  const c = design.config, g = geometry(c), sections = layout(c, design.sections), box = carcass(c);
+  // With a one-piece header, the trim board runs down to the upper doors and the stiles stop under it.
+  const trimBottom = frameHeader(c)?.bottom ?? box.top;
   const color = finishes[design.finish].color;
   return <Canvas shadows frameloop="demand" dpr={[1, 2]} camera={{ fov: 34, near: 0.1, far: 1500 }} gl={{ alpha: true }}
     fallback={<div className="empty">WebGL is unavailable. Front and top views still work.</div>}>
@@ -112,10 +163,19 @@ export function Scene({ design, selected, onSelect, openings, ghost, reset }: {
       <planeGeometry args={[1500, 1500]} />
       <shadowMaterial transparent opacity={0.14} />
     </mesh>
-    <Slab points={g.leftSide} bottom={c.thickness} height={c.height - 2 * c.thickness} color={color} ghost={ghost} />
-    <Slab points={g.rightSide} bottom={c.thickness} height={c.height - 2 * c.thickness} color={color} ghost={ghost} />
-    <Slab points={g.outer} bottom={0} height={c.thickness} color={color} />
-    <Slab points={g.outer} bottom={c.height - c.thickness} height={c.thickness} color={color} ghost={ghost} />
+    <Slab points={g.leftSide} bottom={box.base + c.thickness} height={box.top - box.base - 2 * c.thickness} color={color} ghost={ghost} />
+    <Slab points={g.rightSide} bottom={box.base + c.thickness} height={box.top - box.base - 2 * c.thickness} color={color} ghost={ghost} />
+    <Slab points={g.carcassOuter} bottom={box.base} height={c.thickness} color={color} />
+    <Slab points={g.carcassOuter} bottom={box.top - c.thickness} height={c.thickness} color={color} ghost={ghost} />
+    {g.stiles.map((points, i) => <Slab key={`stile-${i}`} points={points} bottom={box.base} height={trimBottom - box.base} color={color} />)}
+    {frameParts(c, design.sections)?.rails.map(([a, b], i) => <Board key={`rail-${i}`} size={[g.frameOpening, b - a, c.frontThickness]}
+      at={[0, (a + b) / 2, g.depth - c.frontThickness / 2]} color={color} />)}
+    {box.base > 0 && (() => {
+      const zk = g.depth - c.toeKickDepth, xk = g.outerHalf * (zk - g.outerTip) / (g.depth - g.outerTip);
+      return <Slab points={[[0, g.outerTip], [xk, zk], [-xk, zk]]} bottom={0} height={box.base} color="#5f5446" />;
+    })()}
+    {c.topTrim > 0 && <Board size={[2 * g.outerHalf, c.height - trimBottom, c.frontThickness]}
+      at={[0, (trimBottom + c.height) / 2, g.depth - c.frontThickness / 2]} color={color} />}
     {sections.map((s, i) => <group key={s.id}>
       {i < sections.length - 1 && <Slab points={g.shelf} bottom={s.top} height={c.thickness} color={color} />}
       <Storage design={design} section={s} opening={openings[s.id] ?? 0}
