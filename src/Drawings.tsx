@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type { Design, Point, Section } from './model';
-import { carcass, doorLeaves, finishes, fmt, frameHeader, frameOpening, geometry, hingeBlocks, hingeHeights, hasLight, hasShelves, kinds, layout, lightGroove, minimumSectionHeight, shelfClearHeight, trayPoints, triangularDrawer } from './model';
+import { carcass, doorLeaves, finishes, fmt, frameHeader, frameOpening, geometry, hingeBlocks, hingeHeights, hasLight, hasShelves, kinds, layout, lightGroove, minimumSectionHeight, pullPlacement, shelfClearHeight, trayPoints, triangularDrawer } from './model';
 
 export function FrontDrawing({ design, selected = '', select = () => {}, resize, reorder, reportError, compact = false }: {
   design: Design; selected?: string; select?: (id: string) => void;
@@ -72,7 +72,7 @@ export function FrontDrawing({ design, selected = '', select = () => {}, resize,
     {box.base > 0 && (() => {
       const zk = g.depth - c.toeKickDepth, xk = g.outerHalf * (zk - g.outerTip) / (g.depth - g.outerTip);
       return <g aria-label="Toe kick">
-        <rect x={195 - xk * scale} y={y(box.base)} width={2 * xk * scale} height={box.base * scale} fill="#5f5446" />
+        <rect x={195 - xk * scale} y={y(box.base)} width={2 * xk * scale} height={box.base * scale} fill={finishes[design.finish].color} stroke="#655846" />
         <text x={x + w + 8} y={y(box.base / 2) + 3} className="drawing-note">{fmt(box.base)}" x {fmt(c.toeKickDepth)}" toe kick</text>
       </g>;
     })()}
@@ -98,6 +98,10 @@ export function FrontDrawing({ design, selected = '', select = () => {}, resize,
             width={fw} height={c.thickness * scale} fill="#91754f" opacity={s.kind === 'door' ? 0.35 : 1} />)}
         {(s.kind === 'door' || s.kind === 'single-door') && doorLeaves(c, s).flatMap(({ side }) => hingeHeights(c, s).map(hy =>
           <rect key={`${side}-${hy}`} x={side < 0 ? fx + 1 : fx + fw - 4} y={y(hy) - 4} width="3" height="8" fill="#6e5940" />))}
+        {pullPlacement(c, s) && doorLeaves(c, s).map(({ side, width }) => {
+          const p = pullPlacement(c, s)!, px = 195 + (side * g.frontWidth / 2 - side * (width - p.edgeInset)) * scale;
+          return <rect key={`pull-${side}`} x={px - 1.5} y={y(p.center + p.overall / 2)} width="3" height={p.overall * scale} rx="1.2" fill="#1b1b1b" />;
+        })}
         {hasLight(s) && <g aria-label="LED light groove under the panel above">
           <line x1={195 - lightGroove(c).length * scale / 2} x2={195 + lightGroove(c).length * scale / 2}
             y1={dy + 1.5} y2={dy + 1.5} stroke="#d99a1e" strokeWidth="2.5" strokeLinecap="round"

@@ -3,7 +3,7 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { Edges, OrbitControls } from '@react-three/drei';
 import { Shape } from 'three';
 import type { Design, PlacedSection, Point } from './model';
-import { BLUM_HINGE, carcass, doorLeaves, finishes, frameHeader, frameOpening, frameParts, geometry, HINGE_BLOCK_HEIGHT, hingeBlocks, hingeHeights, hingePlate, hasLight, hasShelves, layout, lightGroove, shelfClearHeight, triangularDrawer } from './model';
+import { BLUM_HINGE, carcass, doorLeaves, finishes, frameHeader, frameOpening, frameParts, geometry, HINGE_BLOCK_HEIGHT, hingeBlocks, hingeHeights, hingePlate, hasLight, hasShelves, layout, lightGroove, PULL, pullPlacement, shelfClearHeight, triangularDrawer } from './model';
 
 function Slab({ points, bottom, height, color, ghost = false }: {
   points: Point[]; bottom: number; height: number; color: string; ghost?: boolean;
@@ -56,6 +56,21 @@ function HingeOnDoor({ side, y, plate, pivotX, depth, frontThickness }: {
     <Bar from={[cupX, back - 0.2]} to={plateLocal} y={y} height={0.55} thickness={0.32} />
   </group>;
 }
+const MATTE_BLACK = { color: '#161616', metalness: 0.35, roughness: 0.62 };
+/** Vertical bar pull in the door's own coordinates (front face at z = 0): two posts and a bar. */
+function PullOnDoor({ x, y, length, overall }: { x: number; y: number; length: number; overall: number }) {
+  const { bar, projection } = PULL, post = 0.3, z = projection - bar / 2;
+  return <group position={[x, y, 0]}>
+    <mesh position={[0, 0, z]} castShadow>
+      <boxGeometry args={[bar, overall, bar]} />
+      <meshStandardMaterial {...MATTE_BLACK} />
+    </mesh>
+    {[-1, 1].map(end => <mesh key={end} position={[0, end * length / 2, (projection - bar) / 2]} castShadow>
+      <boxGeometry args={[post, post, projection - bar]} />
+      <meshStandardMaterial {...MATTE_BLACK} />
+    </mesh>)}
+  </group>;
+}
 function TrayBox({ width, depth, height, thickness, color }: {
   width: number; depth: number; height: number; thickness: number; color: string;
 }) {
@@ -77,6 +92,7 @@ function Storage({ design, section: s, opening, selected, select }: {
   const groove = hasLight(s) ? lightGroove(c) : null;
   const [ob, ot] = frameOpening(c, s), oh = ot - ob;
   const plate = hingePlate(c);
+  const pull = pullPlacement(c, s);
   return <group onClick={event => { event.stopPropagation(); select(); }}>
     {(s.kind === 'door' || s.kind === 'single-door') && doorLeaves(c, s).flatMap(({ side }) => hingeHeights(c, s).map(hy =>
       <mesh key={`plate-${side}-${hy}`} position={[side * (plate.x0 + plate.x1) / 2, hy, (plate.z0 + plate.z1) / 2]}>
@@ -108,6 +124,8 @@ function Storage({ design, section: s, opening, selected, select }: {
           at={[-side * leafWidth / 2, 0, -c.frontThickness / 2]} color={frontColor} />
         {hingeHeights(c, s).map(hy => <HingeOnDoor key={hy} side={side} y={hy - (ob + oh / 2)} plate={plate}
           pivotX={side * g.frontWidth / 2} depth={g.depth} frontThickness={c.frontThickness} />)}
+        {pull && <PullOnDoor x={-side * (leafWidth - pull.edgeInset)} y={pull.center - (ob + oh / 2)}
+          length={pull.length} overall={pull.overall} />}
       </group>;
     })}
     {s.kind === 'drawers' && <>
@@ -172,7 +190,7 @@ export function Scene({ design, selected, onSelect, openings, ghost, reset }: {
       at={[0, (a + b) / 2, g.depth - c.frontThickness / 2]} color={color} />)}
     {box.base > 0 && (() => {
       const zk = g.depth - c.toeKickDepth, xk = g.outerHalf * (zk - g.outerTip) / (g.depth - g.outerTip);
-      return <Slab points={[[0, g.outerTip], [xk, zk], [-xk, zk]]} bottom={0} height={box.base} color="#5f5446" />;
+      return <Slab points={[[0, g.outerTip], [xk, zk], [-xk, zk]]} bottom={0} height={box.base} color={color} />;
     })()}
     {c.topTrim > 0 && <Board size={[2 * g.outerHalf, c.height - trimBottom, c.frontThickness]}
       at={[0, (trimBottom + c.height) / 2, g.depth - c.frontThickness / 2]} color={color} />}

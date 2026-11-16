@@ -21,6 +21,8 @@ export interface Config {
   faceFrame: number;
   /** 1 = top trim and the frame's top rail are one header board; 0 = separate pieces. */
   trimHeader: number;
+  /** Door pull screw-hole spacing (center to center). 0 = no pulls. */
+  pullLength: number;
 }
 export interface Section {
   id: string;
@@ -73,9 +75,11 @@ export const initialConfig: Config = {
   topTrim: 3, hingeBlockLength: 0, faceFrame: 1.5,
   // Trim and top rail as one board from the ceiling to the upper doors (no seam line).
   trimHeader: 1,
+  // 4" matte black bar pulls, one per door leaf (placement option A).
+  pullLength: 4,
 };
 /** Values that reproduce designs saved before these settings existed. */
-const LEGACY_CONFIG: Partial<Config> = { toeKickHeight: 0, toeKickDepth: 0, topTrim: 0, hingeBlockLength: 0, faceFrame: 0, trimHeader: 0 };
+const LEGACY_CONFIG: Partial<Config> = { toeKickHeight: 0, toeKickDepth: 0, topTrim: 0, hingeBlockLength: 0, faceFrame: 0, trimHeader: 0, pullLength: 0 };
 /** Vertical extent of the carcass: above the toe kick, below the top trim. */
 export function carcass(c: Config) {
   return { base: c.toeKickHeight, top: c.height - c.topTrim };
@@ -268,6 +272,23 @@ export function hingeHeights(c: Config, s: PlacedSection) {
   });
 }
 /**
+ * Door pulls, placement option A: vertical bar pulls near the meeting edge (the free
+ * edge on a single door), set 3" from the door end nearest PULL.handHeight. Lower doors
+ * get the pull at their top corner, upper doors at their bottom corner, so the pulls
+ * bracket the cubby and sit at about elbow height (lower) or just above the shoulder (upper).
+ */
+export const PULL = { name: 'Matte black bar pull', handHeight: 48, endInset: 3, edgeInset: 1.25,
+  overhang: 0.1875, bar: 0.375, projection: 1.25 };
+export function pullPlacement(c: Config, s: PlacedSection) {
+  if (c.pullLength <= 0 || !(s.kind === 'door' || s.kind === 'single-door')) return null;
+  const [ob, ot] = frameOpening(c, s), doorBottom = ob + c.reveal, doorTop = ot - c.reveal;
+  const reach = PULL.endInset + c.pullLength / 2;
+  const lo = doorBottom + reach, hi = doorTop - reach;
+  const center = lo > hi ? (doorBottom + doorTop) / 2 : Math.min(hi, Math.max(lo, PULL.handHeight));
+  return { center, bottom: center - c.pullLength / 2, top: center + c.pullLength / 2,
+    edgeInset: PULL.edgeInset, length: c.pullLength, overall: c.pullLength + 2 * PULL.overhang };
+}
+/**
  * Angled blocks glued to the inside of each hinged side panel so the hinge plate
  * mounts on a face square to the door. Plan shape is a wedge; its thickness at the
  * front is length x tan(half-angle).
@@ -374,7 +395,7 @@ export function validation(design: Design): string[] {
     ['slideClearance', 0.125, 1.5, 'Drawer side clearance'],
     ['toeKickHeight', 0, 8, 'Toe kick height'], ['toeKickDepth', 0, 6, 'Toe kick depth'],
     ['topTrim', 0, 12, 'Top trim height'], ['hingeBlockLength', 0, 6, 'Hinge block length'],
-    ['faceFrame', 0, 4, 'Face frame width'], ['trimHeader', 0, 1, 'One-piece header'],
+    ['faceFrame', 0, 4, 'Face frame width'], ['trimHeader', 0, 1, 'One-piece header'], ['pullLength', 0, 12, 'Pull length'],
   ];
   for (const [key, min, max, label] of ranges) {
     if (!Number.isFinite(c[key]) || c[key] < min || c[key] > max)

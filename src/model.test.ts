@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { finishes, BLUM_HINGE, hingePlate, carcass, frameHeader, frameOpening, frameParts, hingeBlocks, hingeCount, hingeHeights, upgradeDesign, doorLeaves, fitWarnings, geometry, hasLight, hasShelves, initialConfig, initialDesign, lightGroove, REACH_LAYOUT, inspectorLimits, isDesign, layout, minimumSectionHeight, preset, reorderSections, resizeBoundary, shelfClearHeight, trayClear, trayPoints, traySweep, triangularDrawer, validation, WALL_CLEARANCE_WARNING } from './model.ts';
+import { finishes, pullPlacement, BLUM_HINGE, hingePlate, carcass, frameHeader, frameOpening, frameParts, hingeBlocks, hingeCount, hingeHeights, upgradeDesign, doorLeaves, fitWarnings, geometry, hasLight, hasShelves, initialConfig, initialDesign, lightGroove, REACH_LAYOUT, inspectorLimits, isDesign, layout, minimumSectionHeight, preset, reorderSections, resizeBoundary, shelfClearHeight, trayClear, trayPoints, traySweep, triangularDrawer, validation, WALL_CLEARANCE_WARNING } from './model.ts';
 import { parseMeasurement, scrubMeasurement } from './measurements.ts';
 import type { Config, Point } from './model.ts';
 
-const legacyConfig = { ...initialConfig, toeKickHeight: 0, toeKickDepth: 0, topTrim: 0, hingeBlockLength: 0, faceFrame: 0, trimHeader: 0 };
+const legacyConfig = { ...initialConfig, toeKickHeight: 0, toeKickDepth: 0, topTrim: 0, hingeBlockLength: 0, faceFrame: 0, trimHeader: 0, pullLength: 0 };
 const framelessDesign = () => { const d = initialDesign(); d.config = { ...d.config, faceFrame: 0, hingeBlockLength: 3 }; return d; };
 const balancedDesign = () => ({ ...initialDesign(), config: { ...legacyConfig }, sections: preset(legacyConfig, 'balanced') });
 const near = (actual: number, expected: number, tolerance = 1e-7) =>
@@ -347,7 +347,7 @@ test('middle hinges move clear of shelves; end hinges that hit a shelf are flagg
 });
 test('designs saved before toe kick, trim, and hinge blocks load with their original layout', () => {
   const old = balancedDesign() as unknown as { config: Record<string, number> };
-  for (const key of ['toeKickHeight', 'toeKickDepth', 'topTrim', 'hingeBlockLength', 'faceFrame', 'trimHeader']) delete old.config[key];
+  for (const key of ['toeKickHeight', 'toeKickDepth', 'topTrim', 'hingeBlockLength', 'faceFrame', 'trimHeader', 'pullLength']) delete old.config[key];
   assert.equal(isDesign(old), false);
   const upgraded = upgradeDesign(JSON.parse(JSON.stringify(old)));
   assert.equal(isDesign(upgraded), true);
@@ -419,4 +419,14 @@ test('default finish is the house color, Finsa 98V Roble Aurora, and older finis
   assert.match(finishes.finsa98v.note ?? '', /edgebanding/);
   assert.equal(isDesign(JSON.parse(JSON.stringify(d))), true);
   assert.equal(isDesign({ ...d, finish: 'oak' }), true);
+});
+
+test('door pulls follow placement A: top of the lower doors, bottom of the upper doors', () => {
+  const d = initialDesign(), c = d.config, placed = layout(c, d.sections);
+  assert.equal(c.pullLength, 4);
+  const lower = pullPlacement(c, placed[0])!, upper = pullPlacement(c, placed[2])!;
+  near(lower.bottom, 44.375); near(lower.top, 48.375);
+  near(upper.bottom, 69.375); near(upper.top, 73.375);
+  assert.equal(pullPlacement(c, placed[1]), null);
+  assert.equal(pullPlacement({ ...c, pullLength: 0 }, placed[0]), null);
 });

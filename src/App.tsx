@@ -5,7 +5,7 @@ import { Scene } from './Scene';
 import { AnimatedContent } from './AnimatedContent';
 import { NumberField } from './NumberField';
 import type { Config, Design, PresetStyle, Section, StorageKind } from './model';
-import { BLUM_HINGE, carcass, finishes, fitWarnings, fmt, frameHeader, frameParts, geometry, hingeBlocks, hingeHeights, hasLight, upgradeDesign, hasShelves, initialDesign, inspectorLimits, isDesign, kinds, layout, LIGHT_SPEC, lightGroove, preset, reorderSections, resizeBoundary, shelfClearHeight, traySweep, triangularDrawer, validation, WALL_CLEARANCE_WARNING } from './model';
+import { BLUM_HINGE, carcass, finishes, fitWarnings, fmt, frameHeader, frameParts, geometry, hingeBlocks, hingeHeights, hasLight, upgradeDesign, hasShelves, initialDesign, inspectorLimits, isDesign, kinds, layout, LIGHT_SPEC, lightGroove, preset, PULL, pullPlacement, reorderSections, resizeBoundary, shelfClearHeight, traySweep, triangularDrawer, validation, WALL_CLEARANCE_WARNING } from './model';
 
 const STORAGE_KEY = 'corner-workshop-designs-v1';
 function readSaved(): { designs: Design[]; error: string } {
@@ -158,7 +158,7 @@ export default function App() {
     const data = { schemaVersion: 2, units: 'inches', ...design, sections: placed.map(item => item.kind === 'drawers'
       ? { ...item, drawerShape: 'triangular', boxWidth: drawer.width, boxDepth: drawer.depth }
       : hasLight(item) ? { ...item, lightGroove: { ...lightGroove(c), spec: LIGHT_SPEC } }
-        : item.kind === 'door' || item.kind === 'single-door' ? { ...item, hingeHeights: hingeHeights(c, item), hingeBlocks: hingeBlocks(c, item), ...(c.faceFrame > 0 ? { hinge: BLUM_HINGE.name } : {}) } : item),
+        : item.kind === 'door' || item.kind === 'single-door' ? { ...item, hingeHeights: hingeHeights(c, item), hingeBlocks: hingeBlocks(c, item), pull: pullPlacement(c, item), ...(c.faceFrame > 0 ? { hinge: BLUM_HINGE.name } : {}) } : item),
       derived: { frontEnvelopeWidth: g.width, centerDepth: g.depth, shelfFrontWidth: g.shelfWidth, faceFrame: frameParts(c, design.sections),
         triangularDrawer: { outsideWidth: drawer.width, outsideDepth: drawer.depth, insideWidth: drawer.insideWidth, insideDepth: drawer.insideDepth } },
       warnings, status: 'Concept proposal; not a shop drawing or approved cut list' };
@@ -198,6 +198,7 @@ export default function App() {
             <NumberField label="Top trim height" value={c.topTrim} change={v => config('topTrim', v)} />
             <NumberField label="Face frame width" value={c.faceFrame} change={v => config('faceFrame', v)} />
             <NumberField label="Hinge block length" value={c.hingeBlockLength} change={v => config('hingeBlockLength', v)} />
+            <NumberField label="Door pull length (hole centers)" value={c.pullLength} change={v => config('pullLength', v)} hint="0 = no pulls" />
           </div>
           <label className="light-toggle"><input type="checkbox" checked={c.trimHeader === 1} disabled={c.faceFrame <= 0 || c.topTrim <= 0}
             onChange={e => config('trimHeader', e.target.checked ? 1 : 0)} /> One-piece header from the ceiling to the upper doors</label>
@@ -291,6 +292,9 @@ export default function App() {
           {(s.kind === 'door' || s.kind === 'single-door') && <div className="readout"><span>Hinges per door leaf</span>
             <strong>{hingeHeights(c, s).length} at {hingeHeights(c, s).map(h => fmt(h) + '"').join(', ')}</strong>
             <small>{hingeBlocks(c, s).length ? `Each hinge mounts on a ${fmt(c.hingeBlockLength)}" angled block, ${fmt(hingeBlocks(c, s)[0].thickness)}" thick at the front.` : c.faceFrame > 0 ? `${BLUM_HINGE.name}, mounted to the ${fmt(c.faceFrame)}" face frame stiles.` : 'No hinge blocks. The hinges need another way to mount square to the door on the angled sides.'} Heights from the floor; counts follow typical door-height guidance.</small></div>}
+          {pullPlacement(c, s) && <div className="readout"><span>Door pull, one per leaf</span>
+            <strong>{fmt(pullPlacement(c, s)!.bottom)}" to {fmt(pullPlacement(c, s)!.top)}" (screw holes)</strong>
+            <small>{fmt(c.pullLength)}" {PULL.name.toLowerCase()}, vertical, centerline {fmt(PULL.edgeInset)}" from the {s.kind === 'door' ? 'meeting' : 'free'} edge, {fmt(PULL.endInset)}" from the door end nearest hand height.</small></div>}
           {s.kind === 'cubby' && <>
             <label className="light-toggle"><input type="checkbox" checked={s.light === true}
               onChange={e => updateSection({ light: e.target.checked })} /> LED light strip groove</label>
@@ -355,11 +359,11 @@ export default function App() {
         <tbody>{placed.map(item => <tr key={item.id}><td>{item.name}</td><td>{kinds[item.kind]}</td><td>{fmt(item.height)}"</td><td>
           {item.kind === 'drawers' ? `${item.drawers} triangular boxes, ${fmt(drawer.width)}" front W x ${fmt(drawer.depth)}" center D outside`
             : item.kind === 'swing' ? `${fmt(item.boxWidth)}" W x ${fmt(item.boxDepth)}" D tray, conceptual pivot`
-              : `${item.kind === 'single-door' ? `${item.hinge ?? 'left'} hinge; ` : ''}${item.kind === 'door' || item.kind === 'single-door' ? `${hingeHeights(c, item).length} hinges per leaf${hingeBlocks(c, item).length ? ` on ${fmt(c.hingeBlockLength)}" angled blocks` : ''}${c.faceFrame > 0 ? ` (Blum ${BLUM_HINGE.hinge} + plate ${BLUM_HINGE.plate})` : ''}; ` : ''}${item.shelves} shelves; ${fmt(shelfClearHeight(c, item))}" clear per space${hasLight(item) ? `; ${LIGHT_SPEC}, ${fmt(lightGroove(c).length)}" long` : ''}`}
+              : `${item.kind === 'single-door' ? `${item.hinge ?? 'left'} hinge; ` : ''}${item.kind === 'door' || item.kind === 'single-door' ? `${hingeHeights(c, item).length} hinges per leaf${hingeBlocks(c, item).length ? ` on ${fmt(c.hingeBlockLength)}" angled blocks` : ''}${c.faceFrame > 0 ? ` (Blum ${BLUM_HINGE.hinge} + plate ${BLUM_HINGE.plate})` : ''}; ` : ''}${pullPlacement(c, item) ? `${fmt(c.pullLength)}" pull per leaf, holes at ${fmt(pullPlacement(c, item)!.bottom)}"-${fmt(pullPlacement(c, item)!.top)}", ${fmt(PULL.edgeInset)}" from ${item.kind === 'door' ? 'meeting' : 'free'} edge; ` : ''}${item.shelves} shelves; ${fmt(shelfClearHeight(c, item))}" clear per space${hasLight(item) ? `; ${LIGHT_SPEC}, ${fmt(lightGroove(c).length)}" long` : ''}`}
         </td></tr>)}</tbody></table>
       <h2>Envelope and material assumptions</h2>
       <p>Symmetric triangular footprint. Wall-run limit includes all modeled material. Straight center depth: {fmt(g.depth)}". Panels: {fmt(c.thickness)}"; inset fronts: {fmt(c.frontThickness)}"; box stock: {fmt(c.boxThickness)}"; front gap: {fmt(c.reveal)}"; wall clearance perpendicular to each wall: {fmt(c.wallGap)}". Triangular drawer side allowance: {fmt(c.slideClearance)}" perpendicular to each side. Runner/support hardware is not modeled; no parallel side rails are assumed. Finish reference: {finishes[design.finish].name}.{finishes[design.finish].note && <> {finishes[design.finish].note}</>}</p>
-      <p>Angled side panels enclose the back; no separate back. Top and bottom included in height. No projecting handles, crown, feet, plinth, or countertop. Wall scribing, joinery, actual stock thickness, hardware, service access, load ratings, and tolerances require the maker's design. Shelf dimensions are triangular extents, not rectangular cut sizes.</p>
+      <p>Angled side panels enclose the back; no separate back. Top and bottom included in height. Door pulls are shown at their drilled positions; no crown, feet, or countertop. Wall scribing, joinery, actual stock thickness, hardware, service access, load ratings, and tolerances require the maker's design. Shelf dimensions are triangular extents, not rectangular cut sizes.</p>
       <h2>Review with the woodworker</h2>
       <ul>{warnings.map(w => <li key={w}>{w}</li>)}<li>Confirm all room measurements, obstacles, outlet access, floor level, anchoring and tip-over prevention.</li><li>Confirm installation at {fmt(c.height)}" height: ceiling clearance, delivery route, and sectional assembly.</li><li>Specify actual hinges/slides and check full swept hardware envelopes before approving doors, drawers, or trays.</li><li>Please quote materials, finish, hardware, installation, timeline, and any recommended layout revisions.</li></ul>
     </section>
